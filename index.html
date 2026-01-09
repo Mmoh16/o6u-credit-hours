@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Login Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#0F9E99',
+                        'primary-hover': '#0b7a76',
+                        bg: '#EFE9E0',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- CLERK SCRIPT -->
+    <script async crossorigin="anonymous"
+        data-clerk-publishable-key="pk_test_cHJlcGFyZWQtZmFsY29uLTU2LmNsZXJrLmFjY291bnRzLmRldiQ"
+        src="https://prepared-falcon-56.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+        type="text/javascript">
+        </script>
+</head>
+
+<body class="bg-gray-50 flex flex-col justify-center items-center min-h-screen p-4 font-sans text-gray-800">
+
+    <!-- Background Decoration -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+        <div class="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-teal-200/20 blur-3xl"></div>
+        <div class="absolute top-[40%] -right-[10%] w-[40%] h-[40%] rounded-full bg-blue-200/20 blur-3xl"></div>
+    </div>
+
+    <!-- Auth Card -->
+    <div class="bg-white/80 backdrop-blur-xl w-full max-w-md p-8 rounded-2xl shadow-xl border border-white/50 text-center transition-all duration-500 opacity-0 translate-y-4"
+        id="mainCard">
+
+        <!-- Logo / Icon -->
+        <div
+            class="mb-6 inline-flex items-center justify-center w-16 h-16 rounded-full bg-teal-100 text-teal-600 shadow-md">
+            <i class="fas fa-shield-alt text-3xl"></i>
+        </div>
+
+        <h1 class="text-2xl font-bold text-gray-900 mb-2">Welcome Back</h1>
+        <p class="text-gray-500 mb-8 text-sm">Please sign in to access your dashboard</p>
+
+        <!-- Loading State -->
+        <div id="loading" class="flex flex-col items-center justify-center py-8">
+            <div class="w-10 h-10 border-4 border-teal-100 border-t-teal-600 rounded-full animate-spin mb-4"></div>
+            <p class="text-sm font-medium text-gray-400 animate-pulse">Initializing Security...</p>
+        </div>
+
+        <!-- Clerk Container -->
+        <div id="clerk-sign-in" class="min-h-[100px]"></div>
+
+    </div>
+
+    <footer class="mt-8 text-xs text-gray-400">
+        &copy; 2024 Secure Portal. All rights reserved.
+    </footer>
+
+    <script>
+        const REDIRECT_URL = "dashboard.html"; // Relative path is safer for GitHub Pages
+
+        window.addEventListener("load", async function () {
+            const card = document.getElementById('mainCard');
+            // Animate Card In
+            setTimeout(() => {
+                card.classList.remove('opacity-0', 'translate-y-4');
+            }, 100);
+
+            try {
+                if (!window.Clerk) throw new Error("Clerk script not loaded.");
+
+                await Clerk.load();
+
+                if (Clerk.user) {
+                    // Logged In
+                    document.getElementById("loading").innerHTML = `
+                        <div class="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-3 animate-bounce">
+                            <i class="fas fa-check text-xl"></i>
+                        </div>
+                        <p class="font-bold text-gray-700">Access Granted</p>
+                        <p class="text-xs text-gray-400 mt-1">Redirecting...</p>
+                    `;
+                    setTimeout(() => window.location.href = REDIRECT_URL, 800);
+                } else {
+                    // Not Logged In
+                    document.getElementById("loading").classList.add("hidden");
+                    Clerk.mountSignIn(document.getElementById("clerk-sign-in"), {
+                        afterSignInUrl: REDIRECT_URL,
+                        afterSignUpUrl: REDIRECT_URL,
+                        appearance: {
+                            variables: {
+                                colorPrimary: '#0F9E99',
+                                borderRadius: '0.75rem',
+                            },
+                            elements: {
+                                card: 'shadow-none bg-transparent',
+                                rootBox: 'w-full'
+                            }
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error("Auth Error:", err);
+                document.getElementById("loading").innerHTML = `
+                    <div class="bg-red-50 text-red-600 p-4 rounded-lg border border-red-100 text-left text-sm">
+                        <strong class="block mb-1"><i class="fas fa-exclamation-triangle mr-2"></i>Security Error</strong>
+                        If you are running this locally (file://), Clerk will not work. Please use a local server or GitHub Pages.
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attendance Sender</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#0F9E99',
+            secondary: '#2C3E50',
+          }
+        }
+      }
+    }
+  </script>
+  <script async crossorigin="anonymous"
+    data-clerk-publishable-key="pk_test_cHJlcGFyZWQtZmFsY29uLTU2LmNsZXJrLmFjY291bnRzLmRldiQ"
+    src="https://prepared-falcon-56.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+    type="text/javascript">
+    </script>
+</head>
+
+<body class="bg-gray-50 min-h-screen font-sans pb-20">
+
+  <!-- Navbar -->
+  <div id="main-menu-container"></div>
+
+  <!-- Header -->
+  <div class="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+    <div class="max-w-4xl mx-auto px-4 py-4">
+      <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+
+        <div>
+          <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <i class="fas fa-clock text-orange-500"></i>
+            Attendance Sender
+          </h1>
+          <p class="text-xs text-gray-500 mt-1" id="statusCount">Loading students...</p>
+        </div>
+
+        <div class="flex items-center gap-3 w-full md:w-auto">
+          <!-- Auto Send Controls -->
+          <div id="autoSendControls" class="flex items-center gap-2">
+            <input type="number" id="intervalInput" value="8" min="3"
+              class="w-16 px-2 py-2 border rounded-lg text-center" title="Seconds between sends">
+            <button onclick="toggleAutoSend()" id="btnAutoSend"
+              class="px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors shadow-sm font-medium text-sm flex items-center gap-2">
+              <i class="fas fa-play"></i> Auto Send
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Search & Filter -->
+      <div class="mt-4 flex gap-3">
+        <div class="relative flex-1">
+          <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+          <input type="text" id="searchInput" placeholder="Search student name..."
+            class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-orange-500 outline-none">
+        </div>
+        <select id="statusFilter"
+          class="px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-orange-500 outline-none bg-white font-medium text-gray-600">
+          <option value="all">All</option>
+          <option value="pending">Pending</option>
+          <option value="sent">Sent</option>
+        </select>
+        <button onclick="fetchStudents(true)" class="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+          title="Reload">
+          <i class="fas fa-sync-alt"></i>
+        </button>
+      </div>
+
+      <!-- Progress Bar for Auto Send -->
+      <div id="progressContainer" class="hidden mt-4 bg-gray-100 rounded-full h-2 overflow-hidden">
+        <div id="progressBar" class="bg-orange-500 h-full transition-all duration-300" style="width: 0%"></div>
+      </div>
+      <p id="autoSendStatus" class="text-xs text-orange-600 mt-1 font-bold hidden">Preparing...</p>
+
+    </div>
+  </div>
+
+  <!-- Main List Usage -->
+  <div class="max-w-4xl mx-auto px-4 py-6">
+    <div id="skeletonLoader" class="space-y-3">
+      <!-- Skeleton items injected via JS -->
+    </div>
+
+    <div id="studentList" class="space-y-3 hidden">
+      <!-- Dynamic Items -->
+    </div>
+
+    <div id="emptyState" class="hidden text-center py-12">
+      <div class="w-16 h-16 bg-orange-50 text-orange-300 rounded-full flex items-center justify-center mx-auto mb-3">
+        <i class="fas fa-check-double text-2xl"></i>
+      </div>
+      <p class="text-gray-500 font-medium">No students found matching your criteria.</p>
+    </div>
+  </div>
+
+  <script src="navbar.js"></script>
+  <script>
+    const API_URL = "https://corsproxy.io/?" + encodeURIComponent("https://api.mark-attendance.com/webhook/ATTENDANCE_WHATS");
+    let students = [];
+    let autoSendInterval = null;
+    let isAutoSending = false;
+    let sentIds = new Set(JSON.parse(localStorage.getItem('attendance_sent_ids') || '[]'));
+
+    // --- Init ---
+    window.addEventListener('load', async () => {
+      if (window.Clerk) {
+        await Clerk.load();
+        if (!Clerk.user) {
+          window.location.href = "index.html";
+          return;
+        }
+      }
+      renderSkeleton();
+      fetchStudents();
+    });
+
+    // --- Data ---
+    async function fetchStudents(force = false) {
+      if (force) {
+        renderSkeleton();
+        document.getElementById('studentList').classList.add('hidden');
+      }
+
+      try {
+        const res = await fetch(API_URL);
+        const data = await res.json();
+
+        // DATA NORMALIZATION
+        students = data.map((s, index) => ({
+          id: s.id || s.Name || `s_${index}`,
+          name: s.Name || "Unknown",
+          link: s.Link || s.Message_Link || "#",
+          extra: s
+        }));
+
+        renderList();
+      } catch (err) {
+        console.error(err);
+        document.getElementById('skeletonLoader').innerHTML = `<div class="text-center text-red-500 py-4">Failed to load data. <br> <button onclick="fetchStudents(true)" class="underline mt-2">Retry</button></div>`;
+      }
+    }
+
+    function renderSkeleton() {
+      document.getElementById('skeletonLoader').innerHTML = Array(5).fill(0).map(() => `
+                <div class="bg-white p-4 rounded-xl border border-gray-100 flex items-center gap-4 animate-pulse">
+                    <div class="w-6 h-6 bg-gray-200 rounded"></div>
+                    <div class="flex-1 h-4 bg-gray-200 rounded"></div>
+                    <div class="w-20 h-8 bg-gray-200 rounded"></div>
+                </div>
+            `).join('');
+      document.getElementById('skeletonLoader').classList.remove('hidden');
+    }
+
+    function renderList() {
+      const container = document.getElementById('studentList');
+      const term = document.getElementById('searchInput').value.toLowerCase();
+      const filter = document.getElementById('statusFilter').value;
+
+      const filtered = students.filter(s => {
+        const matchesSearch = s.name.toLowerCase().includes(term);
+        const isSent = sentIds.has(s.id);
+        if (filter === 'pending') return matchesSearch && !isSent;
+        if (filter === 'sent') return matchesSearch && isSent;
+        return matchesSearch;
+      });
+
+      document.getElementById('statusCount').innerText = `${filtered.length} Students | ${sentIds.size} Sent`;
+      document.getElementById('skeletonLoader').classList.add('hidden');
+
+      if (filtered.length === 0) {
+        container.classList.add('hidden');
+        document.getElementById('emptyState').classList.remove('hidden');
+        return;
+      }
+
+      container.classList.remove('hidden');
+      document.getElementById('emptyState').classList.add('hidden');
+
+      container.innerHTML = filtered.map(s => {
+        const isSent = sentIds.has(s.id);
+        return `
+                <div class="bg-white p-4 rounded-xl shadow-sm border ${isSent ? 'border-green-200 bg-green-50/30' : 'border-gray-100'} hover:shadow-md transition-all flex items-center justify-between group" id="card_${s.id}">
+                    <div class="flex items-center gap-4">
+                        <div onclick="toggleSent('${s.id}')" class="cursor-pointer w-6 h-6 rounded border flex items-center justify-center transition-colors ${isSent ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 text-transparent hover:border-orange-400'}">
+                            <i class="fas fa-check text-xs"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-gray-800 ${isSent ? 'line-through text-gray-400' : ''}">${s.name}</h3>
+                        </div>
+                    </div>
+                    
+                    <a href="${s.link}" target="_blank" onclick="markAsSent('${s.id}')" class="px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-sm flex items-center gap-2 ${isSent ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' : 'bg-orange-100 text-orange-600 hover:bg-orange-600 hover:text-white'}">
+                        <span>${isSent ? 'Resend' : 'Send'}</span>
+                        <i class="fab fa-whatsapp px-1"></i>
+                    </a>
+                </div>
+            `}).join('');
+    }
+
+    // --- Actions ---
+
+    window.toggleSent = function (id) {
+      if (sentIds.has(id)) sentIds.delete(id);
+      else sentIds.add(id);
+      saveState();
+      renderList();
+    }
+
+    window.markAsSent = function (id) {
+      if (!sentIds.has(id)) {
+        sentIds.add(id);
+        saveState();
+        const card = document.getElementById(`card_${id}`);
+        if (card) {
+          card.classList.add('border-green-200', 'bg-green-50/30');
+          setTimeout(renderList, 500);
+        }
+      }
+    }
+
+    function saveState() {
+      localStorage.setItem('attendance_sent_ids', JSON.stringify([...sentIds]));
+      document.getElementById('statusCount').innerText = `${students.length} Total | ${sentIds.size} Sent`;
+    }
+
+    // --- Event Listeners ---
+    document.getElementById('searchInput').addEventListener('input', renderList);
+    document.getElementById('statusFilter').addEventListener('change', renderList);
+
+    // --- Auto Sender Logic ---
+
+    async function toggleAutoSend() {
+      if (isAutoSending) {
+        // STOP
+        stopAutoSend();
+      } else {
+        // START
+        const pending = getPendingStudents();
+        if (pending.length === 0) {
+          Swal.fire("Everything Sent!", "No pending students remaining in the current filtered view.", "success");
+          return;
+        }
+
+        const interval = parseInt(document.getElementById('intervalInput').value) * 1000;
+        if (interval < 3000) { Swal.fire("Warning", "Interval is too short. Minimum 3 seconds.", "warning"); return; }
+
+        isAutoSending = true;
+        const btn = document.getElementById('btnAutoSend');
+        btn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+        btn.classList.replace('bg-orange-500', 'bg-red-500');
+        btn.classList.replace('hover:bg-orange-600', 'hover:bg-red-600');
+
+        document.getElementById('progressContainer').classList.remove('hidden');
+        document.getElementById('autoSendStatus').classList.remove('hidden');
+
+        processAutoQueue(pending, interval);
+      }
+    }
+
+    function stopAutoSend() {
+      isAutoSending = false;
+      const btn = document.getElementById('btnAutoSend');
+      btn.innerHTML = '<i class="fas fa-play"></i> Auto Send';
+      btn.classList.replace('bg-red-500', 'bg-orange-500');
+      btn.classList.replace('hover:bg-red-600', 'hover:bg-orange-600');
+
+      document.getElementById('progressContainer').classList.add('hidden');
+      document.getElementById('autoSendStatus').classList.add('hidden');
+      document.getElementById('progressBar').style.width = '0%';
+    }
+
+    function getPendingStudents() {
+      const term = document.getElementById('searchInput').value.toLowerCase();
+      return students.filter(s => {
+        return !sentIds.has(s.id) && s.name.toLowerCase().includes(term);
+      });
+    }
+
+    async function processAutoQueue(queue, interval) {
+      const total = queue.length;
+      let current = 0;
+
+      const next = () => {
+        if (!isAutoSending) return;
+        if (current >= total) {
+          stopAutoSend();
+          Swal.fire("Complete", "All messages in queue have been opened.", "success");
+          fetchStudents(true);
+          return;
+        }
+
+        const s = queue[current];
+        document.getElementById('autoSendStatus').innerText = `Sending to ${s.name} (${current + 1}/${total})...`;
+        document.getElementById('progressBar').style.width = `${((current + 1) / total) * 100}%`;
+
+        window.open(s.link, '_blank');
+        markAsSent(s.id);
+
+        current++;
+
+        if (current < total) {
+          let countdown = interval / 1000;
+          const timer = setInterval(() => {
+            if (!isAutoSending) clearInterval(timer);
+            document.getElementById('autoSendStatus').innerHTML = `Next: <b>${queue[current].name}</b> in ${countdown}s...`;
+            countdown--;
+            if (countdown < 0) clearInterval(timer);
+          }, 1000);
+          setTimeout(next, interval);
+        } else {
+          next();
+        }
+      };
+      next();
+    }
+
+  </script>
+</body>
+
+</html>
